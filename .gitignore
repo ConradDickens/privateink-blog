@@ -50,8 +50,9 @@ logs/
 *.mov
 *.avi
 
-# Cursor rules (don't upload rules)
+# Cursor files
 .cursorrules
+.cursor/
 
 # Temporary files
 *.tmp
