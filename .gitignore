@@ -54,6 +54,9 @@ logs/
 .cursorrules
 .cursor/
 
+# Requirements file
+PRIVATEINK_REQUIREMENTS.md
+
 # Temporary files
 *.tmp
 *.temp
