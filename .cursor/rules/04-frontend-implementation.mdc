@@ -1,0 +1,206 @@
+---
+globs: *-frontend/**/*.ts,*-frontend/**/*.tsx,*-frontend/**/*.js,*-frontend/**/*.jsx,*-frontend/**/*.mjs
+description: Frontend implementation rules for FHEVM dApps including dual-mode scripts and encryption flow
+---
+
+# 前端实现规则
+
+## 双模式运行脚本
+
+### dev:mock 模式（本地开发）
+
+`package.json` 配置：
+```json
+{
+  "scripts": {
+    "dev:mock": "node scripts/check-node.mjs && node scripts/genabi.mjs && next dev"
+  }
+}
+```
+
+**执行流程**：
+1. **检测本地 Hardhat 节点**
+   - 检查 `http://127.0.0.1:8545` 是否可访问
+   - 参考实现思路：[is-hardhat-node-running.mjs](mdc:frontend/scripts/is-hardhat-node-running.mjs)
+   
+2. **生成 ABI 和地址映射**
+   - 读取 `fhevm-hardhat-template/deployments/localhost/*.json`
+   - 生成 TypeScript 类型安全的 ABI 和地址文件
+   - 参考实现思路：[genabi.mjs](mdc:frontend/scripts/genabi.mjs)
+   
+3. **启动开发服务器**
+   - 运行 `next dev` 或其他框架的 dev 命令
+
+**运行时行为**：
+```typescript
+// 当 chainId === 31337 且存在 fhevm_relayer_metadata 时
+if (chainId === 31337 && metadata) {
+  const { createInstance } = await import('@fhevm/mock-utils');
+  // 创建 Mock 实例
+}
+```
+
+### dev 模式（测试网/主网）
+
+`package.json` 配置：
+```json
+{
+  "scripts": {
+    "dev": "node scripts/genabi.mjs && next dev"
+  }
+}
+```
+
+**执行流程**：
+1. 生成 ABI 和地址映射
+2. 启动开发服务器
+
+**运行时行为**：
+```typescript
+// 注入真实 Relayer SDK
+// 优先 CDN 注入 window.relayerSDK
+// 按网络配置（SepoliaConfig 等）创建实例
+```
+
+参考 [RelayerSDKLoader.ts](mdc:frontend/fhevm/internal/RelayerSDKLoader.ts)
+
+## ABI 生成脚本
+
+创建 `scripts/genabi.mjs`，参考 [genabi.mjs](mdc:frontend/scripts/genabi.mjs) 实现以下功能：
+
+### 核心功能
+1. 读取 `fhevm-hardhat-template/deployments/<network>/*.json`
+2. 提取每个合约的：
+   - ABI（Application Binary Interface）
+   - 部署地址
+   - 交易哈希（可选）
+3. 生成 TypeScript 文件到 `abi/` 目录
+
+### 生成示例
+
+**ContractNameABI.ts**：
+```typescript
+export const ContractNameABI = [
+  // ABI 数组
+] as const;
+```
+
+**ContractNameAddresses.ts**：
+```typescript
+export const ContractNameAddresses = {
+  localhost: "0x1234...",
+  sepolia: "0x5678...",
+} as const;
+```
+
+## 节点检测脚本
+
+创建 `scripts/check-node.mjs`，参考 [is-hardhat-node-running.mjs](mdc:frontend/scripts/is-hardhat-node-running.mjs)：
+
+```javascript
+import http from 'http';
+
+const checkNode = () => {
+  return new Promise((resolve, reject) => {
+    const req = http.request({
+      hostname: '127.0.0.1',
+      port: 8545,
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+    }, (res) => {
+      resolve(res.statusCode === 200);
+    });
+    
+    req.on('error', () => reject(false));
+    req.write(JSON.stringify({ jsonrpc: '2.0', method: 'net_version', params: [], id: 1 }));
+    req.end();
+  });
+};
+
+checkNode()
+  .then(() => console.log('✅ Hardhat node is running'))
+  .catch(() => {
+    console.error('❌ Hardhat node not running. Start with: npx hardhat node');
+    process.exit(1);
+  });
+```
+
+## 加密→上链→解密完整闭环
+
+所有关键功能必须实现完整闭环，参考 [useFHECounter.tsx](mdc:frontend/hooks/useFHECounter.tsx)：
+
+### 1. 加密用户输入
+```typescript
+const encryptedInput = await fhevmInstance.encrypt_uint32(userValue);
+```
+
+### 2. 调用合约方法
+```typescript
+const tx = await contract.processValue(encryptedInput);
+await tx.wait();
+```
+
+### 3. 获取加密句柄
+```typescript
+const encryptedHandle = await contract.getEncryptedValue();
+```
+
+### 4. 用户解密
+```typescript
+const decryptedValue = await fhevmInstance.decrypt(encryptedHandle, userAddress);
+```
+
+### 5. 显示结果
+```typescript
+setResult(decryptedValue);
+```
+
+## Provider 配置
+
+参考 [providers.tsx](mdc:frontend/app/providers.tsx)：
+
+### Mock Chains 配置
+```typescript
+const initialMockChains = [
+  {
+    chainId: 31337,
+    name: 'Localhost',
+    rpcUrl: 'http://127.0.0.1:8545',
+  },
+];
+```
+
+### Relayer 切换逻辑
+```typescript
+const fhevmInstance = useMemo(() => {
+  if (chainId === 31337) {
+    // 使用 Mock
+    return createMockFhevmInstance();
+  } else {
+    // 使用真实 Relayer SDK
+    return createRelayerFhevmInstance(chainId);
+  }
+}, [chainId]);
+```
+
+## 修复规则
+
+修复前端问题时：
+- ✅ 确保 `npm run build` 通过
+- ✅ 解决所有 TypeScript 类型错误
+- ✅ 解决所有 ESLint 错误（如已配置）
+- ❌ 不要启动开发服务（除非用户明确要求）
+
+## 等价实现点
+
+必须提供等价实现说明：
+
+| 参考文件 | 职责 | 新项目文件 | 状态 |
+|---------|------|----------|------|
+| `frontend/fhevm/internal/fhevm.ts` | FHEVM 实例管理 | `voting-frontend/fhevm/fhevm.ts` | ✅ |
+| `frontend/fhevm/internal/RelayerSDKLoader.ts` | SDK 动态加载 | `voting-frontend/fhevm/loader.ts` | ✅ |
+| `frontend/fhevm/internal/constants.ts` | 常量配置 | `voting-frontend/fhevm/constants.ts` | ✅ |
+| `frontend/hooks/useFHECounter.tsx` | 合约交互 | `voting-frontend/hooks/useVoting.tsx` | ✅ |
+| `frontend/components/FHECounterDemo.tsx` | UI 组件 | `voting-frontend/components/VotingUI.tsx` | ✅ |
+| `frontend/app/providers.tsx` | 全局 Provider | `voting-frontend/app/providers.tsx` | ✅ |
+| `frontend/scripts/genabi.mjs` | ABI 生成 | `voting-frontend/scripts/genabi.mjs` | ✅ |

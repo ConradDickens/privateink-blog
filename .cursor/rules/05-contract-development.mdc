@@ -1,0 +1,293 @@
+---
+globs: fhevm-hardhat-template/**/*.sol,fhevm-hardhat-template/deploy/**/*.ts,fhevm-hardhat-template/test/**/*.ts,fhevm-hardhat-template/tasks/**/*.ts
+description: Smart contract development rules for FHEVM with Solidity examples and testing requirements
+---
+
+# 智能合约开发规则
+
+## 合约基本结构
+
+参考 [FHECounter.sol](mdc:fhevm-hardhat-template/contracts/FHECounter.sol)
+
+### 必需导入
+```solidity
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.24;
+
+import "@fhevm/solidity/lib/FHE.sol";
+import "@fhevm/solidity/config/ZamaConfig.sol";
+```
+
+### 网络配置继承
+```solidity
+// 本地测试
+contract MyContract is ZamaConfig { }
+
+// Sepolia 测试网
+contract MyContract is SepoliaConfig { }
+
+// 以太坊主网
+contract MyContract is EthereumConfig { }
+```
+
+### 基本合约模板
+```solidity
+contract VotingContract is SepoliaConfig {
+    // 状态变量
+    euint32 private encryptedVoteCount;
+    mapping(address => ebool) public hasVoted;
+    
+    // 事件
+    event VoteCast(address indexed voter);
+    
+    // 构造函数
+    constructor() {
+        encryptedVoteCount = FHE.asEuint32(0);
+        FHE.allowThis(encryptedVoteCount);
+    }
+    
+    // 核心功能
+    function vote(inEuint32 calldata encryptedVote) public {
+        require(!FHE.decrypt(hasVoted[msg.sender]), "Already voted");
+        
+        euint32 vote = FHE.asEuint32(encryptedVote);
+        encryptedVoteCount = FHE.add(encryptedVoteCount, vote);
+        
+        hasVoted[msg.sender] = FHE.asEbool(true);
+        
+        FHE.allowThis(encryptedVoteCount);
+        FHE.allow(encryptedVoteCount, msg.sender);
+        
+        emit VoteCast(msg.sender);
+    }
+    
+    // 查询功能
+    function getVoteCount() public view returns (euint32) {
+        require(FHE.isSenderAllowed(encryptedVoteCount), "Not authorized");
+        return encryptedVoteCount;
+    }
+}
+```
+
+## 访问控制最佳实践
+
+### 授权模式
+
+**永久授权**：
+```solidity
+FHE.allow(encryptedValue, userAddress);  // 用户可随时解密
+FHE.allowThis(encryptedValue);           // 合约可访问
+```
+
+**临时授权**：
+```solidity
+FHE.allowTransient(encryptedValue, userAddress);  // 仅当前交易有效
+```
+
+### 权限检查
+```solidity
+modifier onlyAllowed(euint32 value) {
+    require(FHE.isSenderAllowed(value), "Not authorized");
+    _;
+}
+
+function sensitiveOperation(euint32 value) public onlyAllowed(value) {
+    // 安全操作
+}
+```
+
+## 部署脚本
+
+参考 [deploy.ts](mdc:fhevm-hardhat-template/deploy/deploy.ts)
+
+### 标准部署脚本
+```typescript
+import { HardhatRuntimeEnvironment } from "hardhat/types";
+import { DeployFunction } from "hardhat-deploy/types";
+
+const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
+  const { deployer } = await hre.getNamedAccounts();
+  const { deploy } = hre.deployments;
+
+  await deploy("VotingContract", {
+    from: deployer,
+    args: [],  // 构造函数参数
+    log: true,
+    waitConfirmations: 1,
+  });
+};
+
+export default func;
+func.tags = ["VotingContract"];
+func.dependencies = [];  // 如有依赖合约
+```
+
+### 部署命令
+```bash
+# 本地部署
+npx hardhat deploy --network localhost
+
+# Sepolia 部署
+npx hardhat deploy --network sepolia
+
+# 仅部署特定合约
+npx hardhat deploy --tags VotingContract --network localhost
+```
+
+## 测试规范
+
+### 本地测试
+
+参考 [FHECounter.ts](mdc:fhevm-hardhat-template/test/FHECounter.ts)
+
+```typescript
+import { expect } from "chai";
+import { ethers, deployments } from "hardhat";
+import { createInstances } from "@fhevm/mock-utils";
+
+describe("VotingContract", function () {
+  let contract: any;
+  let instances: any;
+  let alice: any, bob: any;
+
+  beforeEach(async function () {
+    await deployments.fixture(["VotingContract"]);
+    [alice, bob] = await ethers.getSigners();
+    
+    contract = await ethers.getContract("VotingContract");
+    instances = await createInstances([alice, bob], ethers, contract);
+  });
+
+  it("should allow voting", async function () {
+    const input = instances.alice.createEncryptedInput(
+      await contract.getAddress(),
+      alice.address
+    );
+    input.add32(1);
+    const encryptedVote = input.encrypt();
+
+    await contract.connect(alice).vote(
+      encryptedVote.handles[0],
+      encryptedVote.inputProof
+    );
+
+    // 验证事件
+    await expect(tx).to.emit(contract, "VoteCast");
+  });
+
+  it("should prevent double voting", async function () {
+    // 第一次投票
+    const input = instances.alice.createEncryptedInput(
+      await contract.getAddress(),
+      alice.address
+    );
+    input.add32(1);
+    const encryptedVote = input.encrypt();
+    
+    await contract.connect(alice).vote(
+      encryptedVote.handles[0],
+      encryptedVote.inputProof
+    );
+
+    // 第二次应失败
+    await expect(
+      contract.connect(alice).vote(
+        encryptedVote.handles[0],
+        encryptedVote.inputProof
+      )
+    ).to.be.revertedWith("Already voted");
+  });
+});
+```
+
+### 测试网测试
+
+参考 [FHECounterSepolia.ts](mdc:fhevm-hardhat-template/test/FHECounterSepolia.ts)
+
+需要真实的 FHEVM 环境和 Relayer，测试流程类似但使用真实加密。
+
+### 运行测试
+```bash
+# 运行所有测试
+npx hardhat test
+
+# 运行特定测试
+npx hardhat test test/VotingContract.ts
+
+# 显示 gas 报告
+REPORT_GAS=true npx hardhat test
+```
+
+## Hardhat 任务
+
+参考 [FHECounter.ts](mdc:fhevm-hardhat-template/tasks/FHECounter.ts)
+
+### 创建任务
+```typescript
+import { task } from "hardhat/config";
+
+task("vote", "Cast an encrypted vote")
+  .addParam("value", "Vote value")
+  .setAction(async (taskArgs, hre) => {
+    const contract = await hre.ethers.getContract("VotingContract");
+    const [signer] = await hre.ethers.getSigners();
+    
+    // 加密投票值
+    const { createInstance } = await import("@fhevm/mock-utils");
+    const instance = await createInstance(signer, hre.ethers, contract);
+    
+    const input = instance.createEncryptedInput(
+      await contract.getAddress(),
+      signer.address
+    );
+    input.add32(parseInt(taskArgs.value));
+    const encrypted = input.encrypt();
+    
+    // 提交投票
+    const tx = await contract.vote(encrypted.handles[0], encrypted.inputProof);
+    await tx.wait();
+    
+    console.log("Vote cast successfully!");
+  });
+```
+
+### 运行任务
+```bash
+npx hardhat vote --value 1 --network localhost
+```
+
+## 编译与类型生成
+
+### 编译
+```bash
+npx hardhat compile
+```
+
+编译后自动生成：
+- `artifacts/` - 编译产物
+- `types/` - TypeScript 类型定义
+
+### 清理
+```bash
+npx hardhat clean
+```
+
+## 错误处理
+
+### 使用自定义错误
+```solidity
+error VotingClosed();
+error AlreadyVoted();
+error Unauthorized();
+
+function vote(inEuint32 calldata encryptedVote) public {
+    if (votingEnded) revert VotingClosed();
+    if (hasVoted[msg.sender]) revert AlreadyVoted();
+    // ...
+}
+```
+
+### Gas 优化
+- 优先使用自定义错误而非字符串 revert
+- 合理使用 `allowTransient` 代替 `allow`
+- 批量授权操作

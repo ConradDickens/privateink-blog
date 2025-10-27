@@ -1,0 +1,136 @@
+---
+alwaysApply: true
+---
+
+# 项目结构规则
+
+## 实现范围与放置
+
+### 合约相关（fhevm-hardhat-template）
+
+所有智能合约、部署脚本、任务和测试必须放在 [fhevm-hardhat-template](mdc:fhevm-hardhat-template) 目录：
+
+```
+fhevm-hardhat-template/
+├── contracts/      # Solidity 智能合约
+├── deploy/         # 部署脚本（Hardhat Deploy）
+├── tasks/          # Hardhat 自定义任务
+├── test/           # 合约测试
+├── types/          # 自动生成的 TypeScript 类型
+├── deployments/    # 部署产物（自动生成）
+└── hardhat.config.ts
+```
+
+**必须保留此结构**，不得随意修改目录布局。
+
+### 新前端目录命名规则
+
+创建新前端时，按以下优先级确定目录名：
+
+**优先级 1**：从用户需求文档读取指定的目录名
+
+**优先级 2**：根据 dApp 名称生成
+```
+<项目名称slug>-frontend
+```
+例如：`voting-frontend`、`auction-frontend`
+
+**优先级 3**：使用时间戳
+```
+fhevm-frontend-<timestamp>
+```
+例如：`fhevm-frontend-20251020`
+
+**放置位置**：新前端目录必须创建在根路径 a 下，与 `fhevm-hardhat-template` 和 `frontend` 同级。
+
+### 前端目录结构
+
+新前端应采用以下标准结构（Next.js 示例）：
+
+```
+<new-frontend>/
+├── app/                  # Next.js App Router
+│   ├── layout.tsx
+│   ├── page.tsx
+│   ├── providers.tsx
+│   └── globals.css
+├── components/           # React 组件
+├── hooks/               # 自定义 Hooks
+├── fhevm/               # FHEVM 集成逻辑
+│   ├── fhevm.ts
+│   ├── loader.ts
+│   └── constants.ts
+├── abi/                 # 生成的 ABI 和地址
+├── scripts/             # 构建脚本
+│   ├── genabi.mjs
+│   └── check-node.mjs
+├── public/              # 静态资源
+├── design-tokens.ts     # 设计系统 tokens
+├── package.json
+├── tsconfig.json
+└── next.config.ts
+```
+
+## 部署产物位置
+
+### 合约部署产物
+部署后的合约信息存储在：
+```
+fhevm-hardhat-template/deployments/<network>/
+├── FHECounter.json      # 包含 ABI、地址、字节码
+├── ContractName.json
+└── solcInputs/
+```
+
+### 前端 ABI 文件
+前端需要的 ABI 和地址由脚本生成到：
+```
+<new-frontend>/abi/
+├── ContractNameABI.ts        # TypeScript 格式的 ABI
+└── ContractNameAddresses.ts  # 合约地址映射
+```
+
+## 配置文件位置
+
+### Hardhat 配置
+[fhevm-hardhat-template/hardhat.config.ts](mdc:fhevm-hardhat-template/hardhat.config.ts)
+
+### 前端配置
+- Next.js: `next.config.ts`
+- Vite: `vite.config.ts`
+- Tailwind: `tailwind.config.ts`
+- TypeScript: `tsconfig.json`
+
+## 环境变量
+
+### 合约开发（fhevm-hardhat-template）
+创建 `.env` 文件：
+```bash
+SEPOLIA_PRIVATE_KEY=0x...
+INFURA_API_KEY=...
+# 或
+ALCHEMY_API_KEY=...
+```
+
+### 前端开发
+创建 `.env.local` 文件：
+```bash
+NEXT_PUBLIC_NETWORK=sepolia
+NEXT_PUBLIC_CHAIN_ID=11155111
+```
+
+**注意**：`.env` 和 `.env.local` 应已在 `.gitignore` 中，不得提交到仓库。
+
+## 禁止的目录操作
+
+### ❌ 绝对禁止
+- 修改 [frontend](mdc:frontend) 目录中的任何文件
+- 删除 `fhevm-hardhat-template` 的标准目录结构
+- 在根路径外创建项目文件
+- 创建与现有目录冲突的新目录
+
+### ✅ 允许的操作
+- 在 `fhevm-hardhat-template/contracts/` 创建新合约
+- 在 `fhevm-hardhat-template/test/` 创建新测试
+- 在根路径 a 创建新前端目录
+- 在新前端目录自由组织代码结构
