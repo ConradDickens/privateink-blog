@@ -38,9 +38,17 @@ export default function MyBlogsPage() {
 
     setLoading(true);
     try {
+      // Detect chain ID from wallet or use default (Sepolia for production)
+      const chainId = typeof window !== 'undefined' && (window as any).ethereum 
+        ? await (window as any).ethereum.request({ method: 'eth_chainId' }).then((id: string) => parseInt(id, 16)).catch(() => 11155111)
+        : 11155111; // Default to Sepolia for production
+      
+      // Get RPC URL based on chain ID
+      const { getRpcUrl } = await import('@/fhevm/constants');
+      const rpcUrl = getRpcUrl(chainId);
+      
       // Create read-only provider
-      const provider = new JsonRpcProvider('http://localhost:8545');
-      const chainId = 31337;
+      const provider = new JsonRpcProvider(rpcUrl);
       const contractAddress = getPrivateInkBlogAddress(chainId);
 
       if (!contractAddress) {

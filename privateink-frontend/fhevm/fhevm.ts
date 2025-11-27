@@ -66,8 +66,9 @@ async function initMockInstance(provider: BrowserProvider): Promise<FhevmInstanc
   // Dynamically import @fhevm/mock-utils to avoid bundling in production
   const { MockFhevmInstance } = await import('@fhevm/mock-utils');
 
-  // Check if hardhat node has fhevm metadata
-  const rpcUrl = 'http://localhost:8545';
+  // For Mock mode, always use localhost (only works in local development)
+  const { getRpcUrl, LOCAL_CHAIN_ID } = await import('./constants');
+  const rpcUrl = getRpcUrl(LOCAL_CHAIN_ID);
   const metadata = await tryFetchMetadata(rpcUrl);
 
   if (!metadata) {
